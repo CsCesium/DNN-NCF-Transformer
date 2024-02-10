@@ -5,13 +5,46 @@ import torch.nn.functional as F
 import pandas as pd
 from sklearn.model_selection import train_test_split
 from torch.utils.data import TensorDataset, DataLoader
+from sklearn.preprocessing import LabelEncoder, MinMaxScaler
+import os
+
+current_script_path = os.path.abspath(__file__)
+
+ml_directory = os.path.dirname(os.path.dirname(os.path.dirname(current_script_path)))
+
+data_directory = os.path.join(ml_directory, 'data')
+
+data_path = os.path.join(data_directory, 'property_data.csv')
+data_path ="E:\source\ISS\AD_project\ML\data\property_data.csv"
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 def props_data_process():
-    df = pd.read_csv('property_data.csv')
+    df = pd.read_csv(data_path)
 
-    X = df.drop(columns=['user_id', 'property_id', 'interest_level'])
+    # X = df.drop(columns=['user_id', 'property_id', 'interest_level'])
+
+
+    town_encoder = LabelEncoder()
+    df['preferred_town_encoded'] = town_encoder.fit_transform(df['preferred_town'])
+    df['town_encoded'] = town_encoder.transform(df['town']) 
+
+    flat_type_encoder = LabelEncoder()
+    df['preferred_flat_type_encoded'] = flat_type_encoder.fit_transform(df['preferred_flat_type'])
+    df['flat_type_encoded'] = flat_type_encoder.transform(df['flat_type'])
+
+    flat_model_encoder = LabelEncoder()
+    df['flat_model_encoded'] = flat_model_encoder.fit_transform(df['flat_model'])
+
+    bool_columns = ['town_match', '3-room_match', '4-room_match', 'Executive_match', '2-room_match', 'price_in_range']
+    df[bool_columns] = df[bool_columns].astype(int)
+    
+    scaler = MinMaxScaler()
+    numeric_columns = ['low_price', 'high_price', 'floor_area_sqm', 'resale_price']
+    df[numeric_columns] = scaler.fit_transform(df[numeric_columns])
+    df = df.drop(columns=['preferred_town', 'preferred_flat_type', 'town', 'flat_type', 'flat_model',])
     y = df['interest_level']
-
+    X = df.drop(columns=['user_id', 'property_id', 'interest_level'])
+    # X.to_csv('X.csv')
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
     X_train_tensor = torch.tensor(X_train.values, dtype=torch.float)
@@ -30,7 +63,9 @@ def train_model(X_train_tensor, y_train_tensor, X_test_tensor, y_test_tensor):
     test_dataset = TensorDataset(X_test_tensor, y_test_tensor)
     test_loader = DataLoader(test_dataset, batch_size=64, shuffle=False)
 
+
     model = DNN(X_train_tensor.shape[1])
+    model.to(device)
     criterion = nn.BCELoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
     
@@ -40,9 +75,10 @@ def train_model(X_train_tensor, y_train_tensor, X_test_tensor, y_test_tensor):
             train_loss = 0.0
             
             for inputs, labels in train_loader:
+                inputs, labels = inputs.to(device), labels.to(device)
                 optimizer.zero_grad()  
                 outputs = model(inputs)
-                loss = criterion(outputs.squeeze(), labels)
+                loss = criterion(outputs.view(-1), labels.view(-1))
                 loss.backward() 
                 optimizer.step()  
                 
@@ -56,11 +92,12 @@ def train_model(X_train_tensor, y_train_tensor, X_test_tensor, y_test_tensor):
             
             with torch.no_grad():  
                 for inputs, labels in test_loader:
+                    inputs, labels = inputs.to(device), labels.to(device)
                     outputs = model(inputs)
-                    loss = criterion(outputs.squeeze(), labels)
+                    loss = criterion(outputs.view(-1), labels.view(-1))
                     test_loss += loss.item() * inputs.size(0)
                     predicted = outputs.squeeze() >= 0.5 
-                    correct += (predicted == labels).type(torch.float).sum().item()
+                    correct += (predicted == labels.view(-1)).type(torch.float).sum().item()
             
             test_loss /= len(test_loader.dataset)
             accuracy = correct / len(test_loader.dataset)
@@ -71,10 +108,16 @@ def train_model(X_train_tensor, y_train_tensor, X_test_tensor, y_test_tensor):
 
 def predict(model, X):
     model.eval()
+    model.to(device)
     with torch.no_grad():
         outputs = model(X)
     return outputs
 
+def load_model(model_path, input_size):
+    model = DNN(input_size)
+    model.load_state_dict(torch.load(model_path))
+    model.eval()
+    return model
 
 class DNN(nn.Module):
     def __init__(self, input_size):
@@ -94,9 +137,11 @@ class DNN(nn.Module):
         return x
     
 
-
 if __name__ =="__main__":
+    print(torch.__version__)
+    print(torch.cuda.is_available())
     #only for train
+
     X_train_tensor, y_train_tensor, X_test_tensor, y_test_tensor = props_data_process()
     train_model(X_train_tensor, y_train_tensor, X_test_tensor, y_test_tensor)
 
