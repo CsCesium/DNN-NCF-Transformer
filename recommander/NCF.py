@@ -6,6 +6,12 @@ import numpy as np
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder, MinMaxScaler
 from torch.utils.data import TensorDataset, DataLoader
+import os
+
+os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
+
+data_path ="E:\source\ISS\AD_project\ML\data"
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 class ExtendedNCF(nn.Module):
     def __init__(self, num_users, num_items, num_item_features, embedding_size, layers=[64, 32, 16, 8]):
@@ -44,21 +50,27 @@ class ExtendedNCF(nn.Module):
     
 def process_data():
     # Load data
-    interactions_df = pd.read_csv()
-    property_df = pd.read_csv()
+    interactions_df = pd.read_csv(data_path + '\interaction.csv')
+    property_df = pd.read_csv(data_path + '\property.csv')
 
     merged_df = pd.merge(interactions_df, property_df, on='property_id')
 
     # Preprocess data
+    #id shall start from 0
+    merged_df['user_id'] = merged_df['user_id'] - 1
+    merged_df['property_id'] = merged_df['property_id'] - 1
     town_encoder = LabelEncoder()
     merged_df['town_encoded'] = town_encoder.fit_transform(merged_df['town'])
 
     flat_type_encoder = LabelEncoder()
     merged_df['flat_type_encoded'] = flat_type_encoder.fit_transform(merged_df['flat_type'])
 
-    scaler = MinMaxScaler()
-    merged_df[['floor_area_sqm', 'resale_price']] = scaler.fit_transform(merged_df[['floor_area_sqm', 'resale_price']])
+    flat_type_encoder = LabelEncoder()
+    merged_df['flat_type_encoded'] = flat_type_encoder.fit_transform(merged_df['flat_type'])
 
+    scaler = MinMaxScaler()
+    merged_df[['floor_area_sqm', 'resale_price','interaction_count']] = scaler.fit_transform(merged_df[['floor_area_sqm', 'resale_price','interaction_count']])
+    
     X_user = torch.tensor(merged_df['user_id'].values)
     X_item = torch.tensor(merged_df['property_id'].values)
     X_item_features = torch.tensor(merged_df[['town_encoded', 'flat_type_encoded', 'floor_area_sqm', 'resale_price']].values, dtype=torch.float)
@@ -95,17 +107,15 @@ def process_data():
     
     return train_loader, test_loader
 
-def train_model(train_loader, model, criterion, optimizer):
-    model = ExtendedNCF(num_users=1000, num_items=1500, num_item_features=4, embedding_size=20, layers=[64, 32, 16, 8])
-    criterion = torch.nn.BCELoss()  
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
-
+def train_model(train_loader, model, criterion, optimizer, device):
     num_epochs = 10 
     for epoch in range(num_epochs):
         model.train()  
         total_loss = 0
         
         for user_ids, item_ids, item_features, labels in train_loader:
+            user_ids, item_ids, item_features, labels = user_ids.to(device), item_ids.to(device), item_features.to(device), labels.to(device)
+            
             optimizer.zero_grad()  
             predictions = model(user_ids, item_ids, item_features) 
             loss = criterion(predictions.squeeze(), labels)  
@@ -115,14 +125,15 @@ def train_model(train_loader, model, criterion, optimizer):
             total_loss += loss.item()
         
         avg_loss = total_loss / len(train_loader)
-        print(f'Epoch {epoch+1}, Average Loss: {avg_loss:.4f}')\
-        
-def eval_model(model, test_loader, criterion):
+        print(f'Epoch {epoch+1}, Average Loss: {avg_loss:.4f}')
+
+def eval_model(model, test_loader, criterion, device):
     model.eval()  
     test_loss = 0
 
     with torch.no_grad(): 
         for user_ids, item_ids, item_features, labels in test_loader:
+            user_ids, item_ids, item_features, labels = user_ids.to(device), item_ids.to(device), item_features.to(device), labels.to(device)
             predictions = model(user_ids, item_ids, item_features)
             loss = criterion(predictions.squeeze(), labels)
             test_loss += loss.item()
@@ -131,12 +142,12 @@ def eval_model(model, test_loader, criterion):
     print(f'Average Test Loss: {avg_test_loss:.4f}')
 
 if __name__ == "__main__":
-    model = ExtendedNCF(num_users=1000, num_items=1500, num_item_features=4, embedding_size=20)
+    model = ExtendedNCF(num_users=1000, num_items=1500, num_item_features=4, embedding_size=20).to(device)
     criterion = torch.nn.BCELoss()  
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
     
     train_loader, test_loader = process_data()
     
-    train_model(train_loader, model, criterion, optimizer)
+    train_model(train_loader, model, criterion, optimizer, device)
     
-    eval_model(model, test_loader, criterion)
+    eval_model(model, test_loader, criterion, device)

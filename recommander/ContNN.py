@@ -22,8 +22,7 @@ def props_data_process():
     df = pd.read_csv(data_path)
 
     # X = df.drop(columns=['user_id', 'property_id', 'interest_level'])
-
-
+    
     town_encoder = LabelEncoder()
     df['preferred_town_encoded'] = town_encoder.fit_transform(df['preferred_town'])
     df['town_encoded'] = town_encoder.transform(df['town']) 

@@ -73,7 +73,7 @@ def generate_interaction():
     # Create DataFrame
     interactions_df = pd.DataFrame({
         'user_id': user_ids,
-        'item_id': item_ids,
+        'property_id': item_ids,
         'interaction_count': interaction_counts
     })
 
