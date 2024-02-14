@@ -1,3 +1,4 @@
+import joblib
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -9,7 +10,9 @@ from torch.utils.data import TensorDataset, DataLoader
 import os
 
 os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
-
+current_script_path = os.path.abspath(__file__)
+ml_directory = os.path.dirname(os.path.dirname(current_script_path))
+encoder_dir = os.path.join(ml_directory, 'encoder')
 data_path ="E:\source\ISS\AD_project\ML\data"
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -105,6 +108,10 @@ def process_data():
     train_loader = DataLoader(train_dataset, batch_size=64, shuffle=True)
     test_loader = DataLoader(test_dataset, batch_size=64, shuffle=False)
     
+    joblib.dump(town_encoder, 'town_encoder_ncf.joblib')
+    joblib.dump(flat_type_encoder, 'flat_type_encoder_ncf.joblib')
+    joblib.dump(scaler, 'scaler_ncf.joblib')    
+
     return train_loader, test_loader
 
 def train_model(train_loader, model, criterion, optimizer, device):
@@ -126,6 +133,10 @@ def train_model(train_loader, model, criterion, optimizer, device):
         
         avg_loss = total_loss / len(train_loader)
         print(f'Epoch {epoch+1}, Average Loss: {avg_loss:.4f}')
+    save_model(model)
+
+def save_model(model):
+    torch.save(model.state_dict(), 'NCF_model.pth')
 
 def eval_model(model, test_loader, criterion, device):
     model.eval()  
@@ -141,6 +152,69 @@ def eval_model(model, test_loader, criterion, device):
     avg_test_loss = test_loss / len(test_loader)
     print(f'Average Test Loss: {avg_test_loss:.4f}')
 
+def predict(model, user_id, property_id, town, flat_type, floor_area_sqm, resale_price, town_encoder, flat_type_encoder, scaler):
+    town_encoded = town_encoder.transform([town])
+    flat_type_encoded = flat_type_encoder.transform([flat_type])
+    item_features = np.array([[floor_area_sqm, resale_price]])
+    item_features_scaled = scaler.transform(item_features)
+    
+    user_id_tensor = torch.tensor([user_id], dtype=torch.long).to(device)
+    property_id_tensor = torch.tensor([property_id], dtype=torch.long).to(device)
+    item_features_tensor = torch.tensor(np.hstack((town_encoded, flat_type_encoded, item_features_scaled)), dtype=torch.float).to(device)
+    
+    model.eval()  
+    with torch.no_grad():
+        prediction = model(user_id_tensor, property_id_tensor, item_features_tensor)
+    
+    return prediction.cpu().numpy()
+
+def recommend_top_n_items(model, user_id, items_df, n, device):
+    #encode town and flat_type
+    town_encoder = joblib.load(os.path.join(encoder_dir, 'town_encoder_ncf.joblib'))
+    flat_type_encoder = joblib.load(os.path.join(encoder_dir, 'flat_type_encoder_ncf.joblib'))
+    scaler = MinMaxScaler()
+
+    user_id = user_id - 1
+    items_df['property_id'] = items_df['property_id'] - 1
+    scaler.fit(items_df[['floor_area_sqm', 'resale_price']])
+    items_df['town_encoded'] = town_encoder.transform(items_df['town'])
+    items_df['flat_type_encoded'] = flat_type_encoder.transform(items_df['flat_type'])
+    items_df[['floor_area_sqm', 'resale_price']] = scaler.transform(items_df[['floor_area_sqm', 'resale_price']])
+
+
+    user_id_tensor = torch.tensor([user_id] * len(items_df), dtype=torch.long).to(device)
+    
+    item_ids_tensor = torch.tensor(items_df['property_id'].values, dtype=torch.long).to(device)
+    item_features_tensor = torch.tensor(items_df[['town_encoded', 'flat_type_encoded', 'floor_area_sqm', 'resale_price']].values, dtype=torch.float).to(device)
+    
+    model.eval()
+    with torch.no_grad():
+        predictions = model(user_id_tensor, item_ids_tensor, item_features_tensor).squeeze()
+    
+    item_scores = predictions.cpu().numpy()
+    item_ids = items_df['property_id'].values
+    
+    top_n_item_indices = item_scores.argsort()[-n:][::-1]
+    top_n_item_ids = item_ids[top_n_item_indices]
+    top_n_item_ids = top_n_item_ids + 1
+    return top_n_item_ids
+
+def load_model(model):
+    model.load_state_dict(torch.load('NCF_model.pth'))
+    return model
+
+def nfc_recommander(user_id):
+    model = ExtendedNCF(num_users=1000, num_items=1500, num_item_features=4, embedding_size=20).to(device)
+    model.to(device)
+    
+    items_df = pd.read_csv(data_path + '\property.csv')
+
+    load_model(model)
+    
+    return recommend_top_n_items(model, user_id, items_df, 10, device)
+
+    
+
 if __name__ == "__main__":
     model = ExtendedNCF(num_users=1000, num_items=1500, num_item_features=4, embedding_size=20).to(device)
     criterion = torch.nn.BCELoss()  
@@ -148,6 +222,8 @@ if __name__ == "__main__":
     
     train_loader, test_loader = process_data()
     
-    train_model(train_loader, model, criterion, optimizer, device)
+    # train_model(train_loader, model, criterion, optimizer, device)
     
-    eval_model(model, test_loader, criterion, device)
+    # eval_model(model, test_loader, criterion, device)
+
+    print(nfc_recommander(1))

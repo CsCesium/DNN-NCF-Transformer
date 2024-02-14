@@ -142,8 +142,6 @@ def build_sequences(df, time_series_length=12, forecast_length=6):
     X = np.array(X, dtype=object) 
     y = np.array(y, dtype=object)
 
-    print(X.shape, y.shape)
-    print(X[0], y[0])
     return X, y
 
 def padding(source_df, x):

@@ -1,15 +1,20 @@
 import pandas as pd
 import numpy as np
 
+sample = pd.read_csv('E:\source\ISS\AD_project\ML\data\hdbdata.csv')
+
+flat_types = sample['flat_type'].unique().tolist()
+HDB_towns = sample['town'].unique().tolist()
+flat_models = sample['flat_model'].unique().tolist()
+
 def generate_recom_data(num_users=1000,num_properties=1500):
     np.random.seed(42)
-
-    flat_types = ['3-room', '4-room', 'Executive', '2-room']
+    print(flat_types)
 
     users = pd.DataFrame({
         'user_id': range(1, num_users + 1),
-        'preferred_town': np.random.choice(['Tampines', 'Jurong West', 'Woodlands', 'Yishun', 'Ang Mo Kio'], num_users),
-        'preferred_flat_type': np.random.choice(['3-room', '4-room', 'Executive', '2-room'], num_users),
+        'preferred_town': np.random.choice(HDB_towns, num_users),
+        'preferred_flat_type': np.random.choice(flat_types, num_users),
         'low_price': np.random.randint(200000, 400000, num_users),
         'high_price': np.random.randint(400001, 800000, num_users)
     })
@@ -20,10 +25,10 @@ def generate_recom_data(num_users=1000,num_properties=1500):
 
     properties = pd.DataFrame({
         'property_id': range(1, num_properties + 1),
-        'town': np.random.choice(['Tampines', 'Jurong West', 'Woodlands', 'Yishun', 'Ang Mo Kio'], num_properties),
-        'flat_type': np.random.choice(['3-room', '4-room', 'Executive', '2-room'], num_properties),
+        'town': np.random.choice(HDB_towns, num_properties),
+        'flat_type': np.random.choice(flat_types, num_properties),
         'floor_area_sqm': np.random.randint(65, 150, num_properties),
-        'flat_model': np.random.choice(['Improved', 'New Generation', 'Model A', 'Standard', 'Apartment'], num_properties),
+        'flat_model': np.random.choice(flat_models, num_properties),
         'resale_price': np.random.randint(300000, 800000, num_properties)
     })
     
@@ -35,7 +40,7 @@ def merge_df(users,properties):
     merged_df = pd.merge(users, properties, on='key').drop('key', axis=1)
     merged_df['town_match'] = (merged_df['preferred_town'] == merged_df['town']).astype(int)
 
-    for flat_type in ['3-room', '4-room', 'Executive', '2-room']:
+    for flat_type in flat_types:
         merged_df[f'{flat_type}_match'] = (merged_df['flat_type'] == flat_type) & (merged_df[f'prefers_{flat_type}'] == 1).astype(int)
 
     merged_df['price_in_range'] = ((merged_df['low_price'] <= merged_df['resale_price']) & 
@@ -48,7 +53,7 @@ def define_intrest(merged_df):
     #merged_df['interest_level'] = np.random.randint(0, 2, size=len(merged_df))
     match_score = (
         merged_df['town_match'] * 0.5 + 
-        merged_df[['3-room_match', '4-room_match', 'Executive_match', '2-room_match']].sum(axis=1) * 0.3 +
+        merged_df[['3 ROOM_match', '4 ROOM_match', 'EXECUTIVE_match', '2 ROOM_match','5 ROOM_match',"MULTI-GENERATION_match"]].sum(axis=1) * 0.3 +
         merged_df['price_in_range'] * 0.2
         )
     
