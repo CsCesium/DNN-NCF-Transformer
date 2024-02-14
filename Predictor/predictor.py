@@ -8,8 +8,13 @@ import numpy as np
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder, MinMaxScaler
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
+import joblib
 
-def train_model(model, criterion, optimizer, device, train_loader, num_epochs=10):
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+data_path = 'E:\source\ISS\AD_project\ML\data\hdbdata.csv'
+def train_model(model, criterion, optimizer, device, train_loader, val_loader ,num_epochs=10):
+    best_val_loss = float('inf')
     for epoch in range(num_epochs):
         model.train()  
         total_loss = 0
@@ -18,15 +23,28 @@ def train_model(model, criterion, optimizer, device, train_loader, num_epochs=10
             inputs, labels = inputs.to(device), labels.to(device)
             
             optimizer.zero_grad()  
-            predictions = model(inputs) 
-            loss = criterion(predictions.squeeze(), labels)  
-            loss.backward()
-            optimizer.step()  
+            outputs = model(inputs)  
+            predicted_labels = outputs[6][:, :, 4]
+            loss = criterion(predicted_labels, labels)  
+            loss.backward()  
+            optimizer.step()
             
-            total_loss += loss.item()
+
+        model.eval()
+        total_val_loss = 0
+        with torch.no_grad():
+            for X_batch, y_batch in val_loader:
+                X_batch, y_batch = X_batch.to(device), y_batch.to(device)
+                predictions = model(X_batch)
+                loss = criterion(predictions[6][:, :, 4], y_batch)
+                total_val_loss += loss.item()
+    
+        average_val_loss = total_val_loss / len(val_loader)
+        print(f"Epoch {epoch+1}, Validation Loss: {average_val_loss}")
         
-        avg_loss = total_loss / len(train_loader)
-        print(f'Epoch {epoch+1}, Average Loss: {avg_loss:.4f}')
+        if average_val_loss < best_val_loss:
+            best_val_loss = average_val_loss
+            torch.save(model.state_dict(), 'best_model.pth')
     return model
 
 def eval_model(model, test_loader, criterion, device):
@@ -43,6 +61,20 @@ def eval_model(model, test_loader, criterion, device):
     avg_loss = test_loss / len(test_loader)
     print(f'Average Test Loss: {avg_loss:.4f}')
     return avg_loss
+
+def create_model():
+    model = iTransformer(
+    num_variates = 5,
+    lookback_len = 12,                  # or the lookback length in the paper
+    dim = 256,                          # model dimensions
+    depth = 6,                          # depth
+    heads = 8,                          # attention heads
+    dim_head = 64,                      # head dimension
+    pred_length = (6),     # can be one prediction, or many
+    num_tokens_per_variate = 1,         # experimental setting that projects each variate to more than one token. the idea is that the network can learn to divide up into time tokens for more granular attention across time. thanks to flash attention, you should be able to accommodate long sequence lengths just fine
+    use_reversible_instance_norm = True # use reversible instance normalization, proposed here https://openreview.net/forum?id=cGDAkQo1C0p . may be redundant given the layernorms within iTransformer (and whatever else attention learns emergently on the first layer, prior to the first layernorm). if i come across some time, i'll gather up all the statistics across variates, project them, and condition the transformer a bit further. that makes more sense
+    )
+    return model
 
 def save_model(model, model_path):
     torch.save(model.state_dict(), model_path)
@@ -62,41 +94,104 @@ def process_data(data_path):
 
     #scale
     scaler = MinMaxScaler()
-    df[['floor_area_sqm', 'resale_price']] = scaler.fit_transform(df[['floor_area_sqm', 'resale_price']])
+    df[['floor_area_sqm']] = scaler.fit_transform(df[['floor_area_sqm']])
+
+    sta_scalar = StandardScaler()
+    df[['resale_price']] = sta_scalar.fit_transform(df[['resale_price']])
 
     #time series
     df['year'] = pd.to_datetime(df['month']).dt.year
     df['month_num'] = pd.to_datetime(df['month']).dt.month
     df['time_index'] = df['year'] * 12 + df['month_num'] - df['year'].min() * 12
     
-    
-    X, y = build_sequences(df)
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+    split_time_index = df['time_index'].quantile(0.8, interpolation='nearest')
 
-    X_train_tensor = torch.tensor(X_train, dtype=torch.float)
-    y_train_tensor = torch.tensor(y_train, dtype=torch.float)
-    X_test_tensor = torch.tensor(X_test, dtype=torch.float)
-    y_test_tensor = torch.tensor(y_test, dtype=torch.float)
+    train_df = df[df['time_index'] <= split_time_index]
+    test_df = df[df['time_index'] > split_time_index]
+
+    
+    X_train, y_train = build_sequences(train_df, time_series_length=12, forecast_length=6)
+    X_test, y_test = build_sequences(test_df, time_series_length=12, forecast_length=6)
+    
+    X_train_tensor = torch.tensor(list(X_train), dtype=torch.float)
+    y_train_tensor = torch.tensor(list(y_train), dtype=torch.float)
+    X_test_tensor = torch.tensor(list(X_test), dtype=torch.float)
+    y_test_tensor = torch.tensor(list(y_test), dtype=torch.float)
+
+    joblib.dump(town_encoder, 'town_encoder.joblib')
+    joblib.dump(flat_type_encoder, 'flat_type_encoder.joblib')
+    joblib.dump(scaler, 'minmax_scaler.joblib')
+    joblib.dump(sta_scalar, 'sta_scalar.joblib')
 
     return X_train_tensor, y_train_tensor, X_test_tensor, y_test_tensor
 
 
-def build_sequences(df, time_series_length=12, forecast_length=3):
+def build_sequences(df, time_series_length=12, forecast_length=6):
     X, y = [], []
-
-    features = ['town', 'flat_type', 'floor_area_sqm', 'resale_price', 'year', 'month_num']
     
-    for i in range(df['time_index'].min(), df['time_index'].max() - time_series_length - forecast_length + 1):
-        mask = (df['time_index'] >= i) & (df['time_index'] < i + time_series_length)
-        forecast_mask = (df['time_index'] >= i + time_series_length) & (df['time_index'] < i + time_series_length + forecast_length)
-        
-        if mask.sum() == time_series_length and forecast_mask.sum() == forecast_length:
+    for town, group in df.groupby('town'):
+        group = group.sort_values(by='time_index')
 
-            X.append(df.loc[mask, features].values)
+        for start_idx in range(len(group) - time_series_length - forecast_length + 1):
+            X_seq = group.iloc[start_idx:start_idx+time_series_length][['flat_type', 'floor_area_sqm','town','year','resale_price']].values
+            y_seq = group.iloc[start_idx+time_series_length:start_idx+time_series_length+forecast_length]['resale_price'].values
             
-            y.append(df.loc[forecast_mask, 'resale_price'].values)
+            X.append(X_seq)
+            y.append(y_seq)
+        
+    X = np.array(X, dtype=object) 
+    y = np.array(y, dtype=object)
 
-    X = np.array(X)
-    y = np.array(y)
-
+    print(X.shape, y.shape)
+    print(X[0], y[0])
     return X, y
+
+def padding(source_df, x):
+    town_avg_prices = source_df.groupby('town')['resale_price'].mean()
+    x['resale_price'] = x.apply(
+    lambda row: town_avg_prices[row['town']] if pd.isnull(row['resale_price']) else row['resale_price'],
+    axis=1
+    )
+
+def predict(model_path, input_data):
+    model = iTransformer(
+    num_variates = 5,
+    lookback_len = 12,                  # or the lookback length in the paper
+    dim = 256,                          # model dimensions
+    depth = 6,                          # depth
+    heads = 8,                          # attention heads
+    dim_head = 64,                      # head dimension
+    pred_length = (6),     # can be one prediction, or many
+    num_tokens_per_variate = 1,         # experimental setting that projects each variate to more than one token. the idea is that the network can learn to divide up into time tokens for more granular attention across time. thanks to flash attention, you should be able to accommodate long sequence lengths just fine
+    use_reversible_instance_norm = True # use reversible instance normalization, proposed here https://openreview.net/forum?id=cGDAkQo1C0p . may be redundant given the layernorms within iTransformer (and whatever else attention learns emergently on the first layer, prior to the first layernorm). if i come across some time, i'll gather up all the statistics across variates, project them, and condition the transformer a bit further. that makes more sense
+    )
+
+    model.load_state_dict(torch.load(model_path))
+    model.to(device)
+    model.eval()
+
+    input_tensor = torch.tensor(input_data, dtype=torch.float).to(device)
+    input_tensor = input_tensor.unsqueeze(0)
+
+    with torch.no_grad():
+        predictions = model(input_tensor)
+
+    return predictions.cpu().numpy()
+
+if __name__ == '__main__':
+    X_train_tensor, y_train_tensor, X_test_tensor, y_test_tensor = process_data(data_path)
+
+    train_dataset = TensorDataset(X_train_tensor, y_train_tensor)
+    val_dataset = TensorDataset(X_test_tensor, y_test_tensor)
+
+    train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
+    val_loader = DataLoader(val_dataset, batch_size=32, shuffle=False)
+
+    model = create_model()
+
+    model.to(device)
+
+    criterion = nn.MSELoss()
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+
+    model = train_model(model, criterion, optimizer, device, train_loader, val_loader, num_epochs=10)
