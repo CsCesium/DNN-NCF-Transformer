@@ -10,7 +10,7 @@ app = Flask(__name__)
 def predict():
     data = request.get_json()
     data = replace_underscores_in_json(data)
-    prediction = predictor.predict_api(data).tolist()
+    prediction = predictor.predict_api(data).tolist()[0]
     return jsonify({'prediction': prediction})
 
 
