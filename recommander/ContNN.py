@@ -167,7 +167,7 @@ def predict(model, X):
 
 def load_model(model_path, input_size):
     model = DNN(input_size)
-    model.load_state_dict(torch.load(model_path))
+    model.load_state_dict(torch.load(model_path,map_location=device))
     model.eval()
     return model
 

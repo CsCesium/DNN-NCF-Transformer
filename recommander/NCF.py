@@ -200,7 +200,7 @@ def recommend_top_n_items(model, user_id, items_df, n, device):
     return top_n_item_ids
 
 def load_model(model):
-    model.load_state_dict(torch.load('NCF_model.pth'))
+    model.load_state_dict(torch.load('NCF_model.pth',map_location=device))
     return model
 
 def nfc_recommander(user_id):
