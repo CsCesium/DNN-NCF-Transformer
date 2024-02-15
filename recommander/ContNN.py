@@ -61,6 +61,9 @@ def props_data_process():
     return X_train_tensor, y_train_tensor, X_test_tensor, y_test_tensor
 
 def prepare_data(input_json):
+    #if find _, replace with space
+
+    
     town_encoder = joblib.load(os.path.join(encoder_dir, 'town_encoder.pkl'))
     flat_type_encoder = joblib.load(os.path.join(encoder_dir, 'flat_type_encoder.pkl'))
     flat_model_encoder = joblib.load(os.path.join(encoder_dir, 'flat_model_encoder.pkl'))
@@ -206,14 +209,14 @@ if __name__ =="__main__":
     print(torch.cuda.is_available())
     #only for train
 
-    X_train_tensor, y_train_tensor, X_test_tensor, y_test_tensor = props_data_process()
-    train_model(X_train_tensor, y_train_tensor, X_test_tensor, y_test_tensor)
+    # X_train_tensor, y_train_tensor, X_test_tensor, y_test_tensor = props_data_process()
+    # train_model(X_train_tensor, y_train_tensor, X_test_tensor, y_test_tensor)
     user_features = {
         'user_id': 1,
         'preferred_town': 'BISHAN',
         'preferred_flat_type': {'4 ROOM', '5 ROOM'},
-        'low_price': 300000,
-        'high_price': 500000,
+        'low_price': 600000,
+        'high_price': 800000,
     }
 
     # user_features_tensor, property_ids = prepare_data(user_features)
