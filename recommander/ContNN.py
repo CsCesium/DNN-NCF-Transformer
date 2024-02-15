@@ -16,7 +16,6 @@ ml_directory = os.path.dirname(os.path.dirname(current_script_path))
 data_directory = os.path.join(ml_directory, 'data')
 
 data_path = os.path.join(data_directory, 'property_data.csv')
-data_path ="E:\source\ISS\AD_project\ML\data\property_data.csv"
 encoder_dir = os.path.join(ml_directory, 'encoder')
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")

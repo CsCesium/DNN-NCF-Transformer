@@ -9,11 +9,11 @@ from sklearn.preprocessing import LabelEncoder, MinMaxScaler
 from torch.utils.data import TensorDataset, DataLoader
 import os
 
-os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
 current_script_path = os.path.abspath(__file__)
 ml_directory = os.path.dirname(os.path.dirname(current_script_path))
 encoder_dir = os.path.join(ml_directory, 'encoder')
-data_path ="E:\source\ISS\AD_project\ML\data"
+data_directory = os.path.join(ml_directory, 'data')
+data_path = os.path.join(data_directory, 'property_data.csv')
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 class ExtendedNCF(nn.Module):

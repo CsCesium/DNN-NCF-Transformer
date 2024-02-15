@@ -12,7 +12,8 @@ import joblib
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 ml_directory = os.path.dirname(os.path.abspath(__file__))
-data_path = 'E:\source\ISS\AD_project\ML\data\hdbdata.csv'
+data_dir = os.path.join(ml_directory, 'data')
+data_path = os.path.join(data_dir, 'hdbdata.csv')
 encoder_dir = os.path.join(ml_directory, 'encoder')
 
 def train_model(model, criterion, optimizer, device, train_loader, val_loader ,num_epochs=10):
