@@ -51,15 +51,20 @@ def merge_df(users,properties):
 def define_intrest(merged_df):
     np.random.seed(42)
     #merged_df['interest_level'] = np.random.randint(0, 2, size=len(merged_df))
-    match_score = (
-        merged_df['town_match'] * 0.5 + 
-        merged_df[['3 ROOM_match', '4 ROOM_match', 'EXECUTIVE_match', '2 ROOM_match','5 ROOM_match',"MULTI-GENERATION_match"]].sum(axis=1) * 0.3 +
-        merged_df['price_in_range'] * 0.2
-        )
+    room_match_score = merged_df[['3 ROOM_match', '4 ROOM_match', 'EXECUTIVE_match', '2 ROOM_match', '5 ROOM_match', "MULTI-GENERATION_match"]].sum(axis=1) / 6 * 0.3
     
-    threshold = match_score.quantile(0.75)  
-    merged_df['interest_level'] = (match_score >= threshold).astype(int)
+    town_match_score = merged_df['town_match'] * 0.5
+    price_in_range_score = merged_df['price_in_range'] * 0.2
+
+    match_score = town_match_score + room_match_score + price_in_range_score
+    match_score_normalized = (match_score - match_score.min()) / (match_score.max() - match_score.min())
+    random_offset = np.random.uniform(-0.05, 0.05, size=match_score_normalized.shape)
+    interest_level_with_offset = match_score_normalized + random_offset
     
+    interest_level_with_offset = np.clip(interest_level_with_offset, 0, 1)
+
+    merged_df['interest_level'] = interest_level_with_offset
+
 def generate_interaction():
 
     np.random.seed(42)

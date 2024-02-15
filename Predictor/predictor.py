@@ -11,8 +11,10 @@ from sklearn.preprocessing import OneHotEncoder, StandardScaler
 import joblib
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
+ml_directory = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 data_path = 'E:\source\ISS\AD_project\ML\data\hdbdata.csv'
+encoder_dir = os.path.join(ml_directory, 'encoder')
+
 def train_model(model, criterion, optimizer, device, train_loader, val_loader ,num_epochs=10):
     best_val_loss = float('inf')
     for epoch in range(num_epochs):
@@ -118,10 +120,10 @@ def process_data(data_path):
     X_test_tensor = torch.tensor(list(X_test), dtype=torch.float)
     y_test_tensor = torch.tensor(list(y_test), dtype=torch.float)
 
-    joblib.dump(town_encoder, 'town_encoder.joblib')
-    joblib.dump(flat_type_encoder, 'flat_type_encoder.joblib')
-    joblib.dump(scaler, 'minmax_scaler.joblib')
-    joblib.dump(sta_scalar, 'sta_scalar.joblib')
+    joblib.dump(town_encoder, os.path.join(encoder_dir, 'town_encoder.joblib'))
+    joblib.dump(flat_type_encoder, os.path.join(encoder_dir, 'flat_type_encoder.joblib'))
+    joblib.dump(scaler, os.path.join(encoder_dir, 'minmax_scaler.joblib'))
+    joblib.dump(sta_scalar, os.path.join(encoder_dir, 'standard_scaler.joblib'))
 
     return X_train_tensor, y_train_tensor, X_test_tensor, y_test_tensor
 
@@ -144,14 +146,55 @@ def build_sequences(df, time_series_length=12, forecast_length=6):
 
     return X, y
 
-def padding(source_df, x):
-    town_avg_prices = source_df.groupby('town')['resale_price'].mean()
-    x['resale_price'] = x.apply(
-    lambda row: town_avg_prices[row['town']] if pd.isnull(row['resale_price']) else row['resale_price'],
-    axis=1
-    )
+# def padding(source_df, x):
+#     town_avg_prices = source_df.groupby('town')['resale_price'].mean()
+#     x['resale_price'] = x.apply(
+#     lambda row: town_avg_prices[row['town']] if pd.isnull(row['resale_price']) else row['resale_price'],
+#     axis=1
+#     )
+
+def fill_time_series_with_past_average( input_data, time_series_length=12, area_tolerance=5):
+    df = pd.read_csv(data_path)
+
+    df = df.drop(columns=['block','street_name','storey_range','flat_model','lease_commence_date','remaining_lease'])
+    df['year'] = pd.to_datetime(df['month']).dt.year
+    df['month_num'] = pd.to_datetime(df['month']).dt.month
+    df['time_index'] = df['year'] * 12 + df['month_num'] - df['year'].min() * 12
+    
+    time_series = []
+    
+    input_town = input_data['town']
+    input_floor_area = input_data['floor_area_sqm']
+    
+    df_sorted = df.sort_values(by='time_index', ascending=False)
+    
+    for time_point in df_sorted['time_index'].unique()[:time_series_length]:
+        similar_records = df_sorted[
+            (df_sorted['time_index'] == time_point) &
+            (df_sorted['town'] == input_town) &
+            (df_sorted['floor_area_sqm'] >= input_floor_area - area_tolerance) &
+            (df_sorted['floor_area_sqm'] <= input_floor_area + area_tolerance)
+        ]
+        
+        avg_price = similar_records['resale_price'].mean()
+        
+        if pd.isna(avg_price):
+            avg_price = input_data['resale_price']
+        
+        time_series.append(avg_price)
+    
+    while len(time_series) < time_series_length:
+        time_series.append(time_series[-1])
+    
+    time_series = time_series[:time_series_length]
+    
+    time_series.reverse()
+    
+    return time_series
 
 def predict(model_path, input_data):
+    sta_scalar = joblib.load(os.path.join(encoder_dir, 'standard_scaler.joblib'))
+    
     model = iTransformer(
     num_variates = 5,
     lookback_len = 12,                  # or the lookback length in the paper
@@ -169,27 +212,73 @@ def predict(model_path, input_data):
     model.eval()
 
     input_tensor = torch.tensor(input_data, dtype=torch.float).to(device)
+    
     input_tensor = input_tensor.unsqueeze(0)
-
     with torch.no_grad():
         predictions = model(input_tensor)
 
-    return predictions.cpu().numpy()
+    predictions_np = predictions[6][:, :, 4].cpu().numpy()
+
+    predictions_unscaled = sta_scalar.inverse_transform(predictions_np)
+
+    return predictions_unscaled
+
+def prepare_data(input_data):
+    town_encoder = joblib.load(os.path.join(encoder_dir, 'town_encoder.joblib'))
+    flat_type_encoder = joblib.load(os.path.join(encoder_dir, 'flat_type_encoder.joblib'))
+    scaler = joblib.load(os.path.join(encoder_dir, 'minmax_scaler.joblib'))
+    sta_scalar = joblib.load(os.path.join(encoder_dir, 'standard_scaler.joblib'))
+
+    series = fill_time_series_with_past_average(input_data)
+
+    town_encoded = town_encoder.transform([input_data['town']])[0]
+    flat_type_encoded = flat_type_encoder.transform([input_data['flat_type']])[0]
+    floor_area_sqm_scaled = scaler.transform([[input_data['floor_area_sqm']]])[0][0]
+    year = input_data['year']
+    extended_features_time_series = []
+    for price in series:
+        price_scaled = sta_scalar.transform([[price]])[0][0]
+        features = [flat_type_encoded, floor_area_sqm_scaled, town_encoded, year, price_scaled]
+        extended_features_time_series.append(features)
+
+    extended_features_time_series_np = np.array(extended_features_time_series)
+
+    return extended_features_time_series_np
+
+def predict_api(input_data):    
+    model_path = 'best_model.pth'
+    input_series = prepare_data(input_data)
+    prediction = predict(model_path, input_series)
+    
+    return prediction
 
 if __name__ == '__main__':
-    X_train_tensor, y_train_tensor, X_test_tensor, y_test_tensor = process_data(data_path)
+    # train
+    # X_train_tensor, y_train_tensor, X_test_tensor, y_test_tensor = process_data(data_path)
 
-    train_dataset = TensorDataset(X_train_tensor, y_train_tensor)
-    val_dataset = TensorDataset(X_test_tensor, y_test_tensor)
+    # train_dataset = TensorDataset(X_train_tensor, y_train_tensor)
+    # val_dataset = TensorDataset(X_test_tensor, y_test_tensor)
 
-    train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
-    val_loader = DataLoader(val_dataset, batch_size=32, shuffle=False)
+    # train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
+    # val_loader = DataLoader(val_dataset, batch_size=32, shuffle=False)
 
-    model = create_model()
+    # model = create_model()
 
-    model.to(device)
+    # model.to(device)
 
-    criterion = nn.MSELoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+    # criterion = nn.MSELoss()
+    # optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
-    model = train_model(model, criterion, optimizer, device, train_loader, val_loader, num_epochs=10)
+    # model = train_model(model, criterion, optimizer, device, train_loader, val_loader, num_epochs=10)
+
+    # for test
+    
+    input_data = {
+        'town': 'ANG MO KIO',
+        'floor_area_sqm': 67,
+        'flat_type': '3 ROOM',
+        'year': 2023,
+        'resale_price': 440000,
+    }
+    prediction = predict_api(input_data)
+    print(prediction)

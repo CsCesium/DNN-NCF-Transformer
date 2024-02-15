@@ -31,8 +31,7 @@ def props_data_process():
     df['town_encoded'] = town_encoder.transform(df['town']) 
 
     flat_type_encoder = LabelEncoder()
-    df['preferred_flat_type_encoded'] = flat_type_encoder.fit_transform(df['preferred_flat_type'])
-    df['flat_type_encoded'] = flat_type_encoder.transform(df['flat_type'])
+    df['flat_type_encoded'] = flat_type_encoder.fit_transform(df['flat_type'])
 
     flat_model_encoder = LabelEncoder()
     df['flat_model_encoded'] = flat_model_encoder.fit_transform(df['flat_model'])
@@ -72,28 +71,42 @@ def prepare_data(input_json):
     items_features_df['flat_type_encoded'] = flat_type_encoder.transform(items_features_df['flat_type'])
     items_features_df['flat_model_encoded'] = flat_model_encoder.transform(items_features_df['flat_model'])
 
+    flat_types = items_features_df['flat_type'].unique().tolist()
+
     df = pd.DataFrame([input_json])
     df['preferred_town_encoded'] = town_encoder.transform([input_json['preferred_town']])
-    df['preferred_flat_type_encoded'] = flat_type_encoder.transform([input_json['preferred_flat_type']])
+    preferred_flat_types = input_json['preferred_flat_type']
+    for flat_type in flat_types:
+        df[f'prefers_{flat_type}'] = df.apply(lambda x: 1 if flat_type in preferred_flat_types else 0, axis=1)
 
-    df = pd.concat([df]*len(items_features_df), ignore_index=True).reset_index(drop=True)
-    items_features_df = pd.concat([items_features_df]*len(df), ignore_index=True).reset_index(drop=True)
+    df_expanded = pd.concat([df]*len(items_features_df), ignore_index=True)
+
+    df_expanded['town_match'] = (df_expanded['preferred_town_encoded'] == items_features_df['town_encoded']).astype(int)
+    df_expanded['price_in_range'] = ((df_expanded['low_price'] <= items_features_df['resale_price']) & (items_features_df['resale_price'] <= df_expanded['high_price'])).astype(int)
+
+
+    combined_features_df = pd.concat([df_expanded.reset_index(drop=True), items_features_df.reset_index(drop=True)], axis=1)
     
-    df['town_match'] = (df['preferred_town_encoded'] == items_features_df['town_encoded']).astype(int)
-    df['flat_type_match'] = (df['preferred_flat_type_encoded'] == items_features_df['flat_type_encoded']).astype(int)
-    df['price_in_range'] = ((df['low_price'] <= items_features_df['resale_price']) & (items_features_df['resale_price'] <= df['high_price'])).astype(int)
 
-    combined_features_df = pd.concat([df, items_features_df], axis=1)
+    for flat_type in flat_types:
+        combined_features_df[f'{flat_type}_match'] = combined_features_df['flat_type_encoded'].apply(lambda x: 1 if flat_type in preferred_flat_types else 0)
 
     numeric_columns = ['low_price', 'high_price', 'floor_area_sqm', 'resale_price']
     combined_features_df[numeric_columns] = scaler.transform(combined_features_df[numeric_columns])
 
 
-    model_features = combined_features_df[['town_match', 'flat_type_match', 'price_in_range', 'town_encoded', 'flat_type_encoded', 'flat_model_encoded', 'floor_area_sqm', 'resale_price']]
+    final_columns_order = ['low_price', 'high_price', 'prefers_2 ROOM', 'prefers_3 ROOM', 'prefers_4 ROOM', 
+                           'prefers_5 ROOM', 'prefers_EXECUTIVE', 'prefers_1 ROOM', 'prefers_MULTI-GENERATION', 
+                           'floor_area_sqm', 'resale_price', 'town_match', '2 ROOM_match', '3 ROOM_match', 
+                           '4 ROOM_match', '5 ROOM_match', 'EXECUTIVE_match', '1 ROOM_match', 'MULTI-GENERATION_match', 
+                           'price_in_range', 'preferred_town_encoded', 'town_encoded', 
+                           'flat_type_encoded', 'flat_model_encoded']
     
+    model_features = combined_features_df[final_columns_order]
+
     combined_features_tensor = torch.tensor(model_features.values, dtype=torch.float)
 
-    return combined_features_tensor
+    return combined_features_tensor, combined_features_df['property_id'].values
 
 def train_model(X_train_tensor, y_train_tensor, X_test_tensor, y_test_tensor):
     train_dataset = TensorDataset(X_train_tensor, y_train_tensor)
@@ -135,19 +148,17 @@ def train_model(X_train_tensor, y_train_tensor, X_test_tensor, y_test_tensor):
                     outputs = model(inputs)
                     loss = criterion(outputs.view(-1), labels.view(-1))
                     test_loss += loss.item() * inputs.size(0)
-                    predicted = outputs.squeeze() >= 0.5 
-                    correct += (predicted == labels.view(-1)).type(torch.float).sum().item()
             
             test_loss /= len(test_loader.dataset)
-            accuracy = correct / len(test_loader.dataset)
 
-            print(f'Epoch {epoch+1}, Train Loss: {train_loss:.4f}, Test Loss: {test_loss:.4f}, Accuracy: {accuracy:.4f}')
+            print(f'Epoch {epoch+1}, Train Loss: {train_loss:.4f}, Test Loss: {test_loss:.4f}')
 
     torch.save(model.state_dict(), 'DNN_model_parameters.pth')
 
 def predict(model, X):
     model.eval()
     model.to(device)
+    X = X.to(device)
     with torch.no_grad():
         outputs = model(X)
     return outputs
@@ -158,23 +169,19 @@ def load_model(model_path, input_size):
     model.eval()
     return model
 
-def recommend_top_n_items(model, user_features, top_n, device):
-    model.eval()
-    model.to(device)
-    
-    user_features_tensor = torch.tensor(user_features, dtype=torch.float).to(device)
-    
-    user_features_expanded = user_features_tensor.expand(len(items_features_df), -1)
-    
-    items_features_tensor = torch.tensor(items_features_df.values, dtype=torch.float).to(device)
-    
+def recommend_top_n_items(user_features, top_n = 10, device=device):
+    user_features_tensor, property_ids = prepare_data(user_features)
+    model = load_model('DNN_model_parameters.pth', user_features_tensor.shape[1])
     with torch.no_grad():
-        predictions = model(torch.cat((user_features_expanded, items_features_tensor), dim=1)).squeeze()
-    
-    _, top_n_indices = torch.topk(predictions, top_n)
-    top_n_item_ids = items_features_df.iloc[top_n_indices.cpu().numpy()]['property_id'].values
-    
-    return top_n_item_ids
+        predictions = model(user_features_tensor).squeeze()  # 假设输出是单维度的分数
+
+    top_n = min(top_n, predictions.size(0))
+
+    _, top_indices = torch.topk(predictions, top_n)
+
+    top_property_ids = property_ids[top_indices.cpu().numpy()]
+    print(top_property_ids)
+    return top_property_ids
 
 class DNN(nn.Module):
     def __init__(self, input_size):
@@ -201,12 +208,14 @@ if __name__ =="__main__":
 
     X_train_tensor, y_train_tensor, X_test_tensor, y_test_tensor = props_data_process()
     train_model(X_train_tensor, y_train_tensor, X_test_tensor, y_test_tensor)
-    # user_features = {
-    #     'user_id': 1,
-    #     'preferred_town': 'Ang Mo Kio',
-    #     'preferred_flat_type': '4-room',
-    #     'low_price': 300000,
-    #     'high_price': 500000,
-    # }
+    user_features = {
+        'user_id': 1,
+        'preferred_town': 'BISHAN',
+        'preferred_flat_type': {'4 ROOM', '5 ROOM'},
+        'low_price': 300000,
+        'high_price': 500000,
+    }
 
-    # user_features_tensor = prepare_data(user_features)
+    # user_features_tensor, property_ids = prepare_data(user_features)
+    top = recommend_top_n_items(user_features)
+

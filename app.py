@@ -26,4 +26,4 @@ def recomm_nn():
     user_features = data['user_features']
     top_n = data['top_n']
 
-    return jsonify({'recommendation': ContNN.recommend_top_n_items(user_features, items_features_df, top_n, device)})
+    return jsonify({'recommendation': ContNN.recommend_top_n_items(user_features, top_n)})
