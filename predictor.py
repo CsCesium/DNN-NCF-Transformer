@@ -1,4 +1,4 @@
-import iTransformer.iTransformer as iTransformer
+from iTransformer import iTransformer
 import torch
 from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
@@ -11,7 +11,7 @@ from sklearn.preprocessing import OneHotEncoder, StandardScaler
 import joblib
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-ml_directory = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ml_directory = os.path.dirname(os.path.abspath(__file__))
 data_path = 'E:\source\ISS\AD_project\ML\data\hdbdata.csv'
 encoder_dir = os.path.join(ml_directory, 'encoder')
 

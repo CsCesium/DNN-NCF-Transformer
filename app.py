@@ -2,14 +2,14 @@ from flask import Flask, request, jsonify
 import torch
 import joblib
 from recommander import ContNN, NCF
-from Predictor import predictor
+import predictor
 
 app = Flask(__name__)
 
 @app.route('/predict', methods=['POST'])
 def predict():
     data = request.get_json()
-    prediction = predictor.
+    prediction = predictor.predict_api(data)
     return jsonify({'prediction': prediction})
 
 
@@ -23,7 +23,10 @@ def recomm_ncf():
 @app.route('/recommend_NN', methods=['POST'])
 def recomm_nn():
     data = request.get_json()
-    user_features = data['user_features']
-    top_n = data['top_n']
+    user_features = data
+    top_n = 10
 
     return jsonify({'recommendation': ContNN.recommend_top_n_items(user_features, top_n)})
+
+if __name__ == '__main__':
+    app.run(port=5000, debug=True)
