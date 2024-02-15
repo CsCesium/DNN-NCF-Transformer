@@ -21,6 +21,10 @@ To use the API, you'll need an HTTP client to make requests. This could be a too
 
 To deploy the API, just unzip the data.zip to data folder, and run app.py
 
+And run
+
+`pip install -r requirements.txt`
+
 ## Endpoints
 
 ### Predict Endpoint
