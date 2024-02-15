@@ -90,12 +90,13 @@ def generate_interaction():
     return interactions_df
 if __name__=="__main__":
     #SAVE THE DF AS CSV
-    user, property = generate_recom_data()
-    property.to_csv("property.csv",index=False)
-    merged_df = merge_df(user,property)
-    define_intrest(merged_df)
-    merged_df.to_csv('property_data.csv',index=False)
+    # user, property = generate_recom_data()
+    # property.to_csv("property.csv",index=False)
+    # merged_df = merge_df(user,property)
+    # define_intrest(merged_df)
+    # merged_df.to_csv('property_data.csv',index=False)
 
-    df = generate_interaction()
-    df.to_csv("interaction.csv",index=False)
-    
+    # df = generate_interaction()
+    # df.to_csv("interaction.csv",index=False)
+    print(HDB_towns)
+
