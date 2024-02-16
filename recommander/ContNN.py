@@ -175,7 +175,7 @@ def recommend_top_n_items(user_features, top_n = 10, device=device):
     user_features_tensor, property_ids = prepare_data(user_features)
     model = load_model('DNN_model_parameters.pth', user_features_tensor.shape[1])
     with torch.no_grad():
-        predictions = model(user_features_tensor).squeeze()  # 假设输出是单维度的分数
+        predictions = model(user_features_tensor).squeeze() 
 
     top_n = min(top_n, predictions.size(0))
 
