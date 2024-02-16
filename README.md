@@ -1,4 +1,3 @@
-Certainly! Below is a simple template for a README file that describes how to use a deployed model through a REST API.
 
 ---
 
@@ -24,6 +23,11 @@ To deploy the API, just unzip the data.zip to data folder, and run app.py
 And run
 
 `pip install -r requirements.txt`
+
+if you find there are any package that is not installed, pleas install it manually, e.g.
+
+`pip install <package_name>`
+
 
 ## Endpoints
 
