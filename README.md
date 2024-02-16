@@ -18,7 +18,7 @@ To use the API, you'll need an HTTP client to make requests. This could be a too
 
 ## Deployment
 
-To deploy the API, just unzip the data.zip to data folder, and run app.py
+To deploy the API, you need to unzip the data.zip to /data folder, and unzip the params.zip in the / folder and run app.py
 
 And run
 
