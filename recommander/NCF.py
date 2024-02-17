@@ -13,7 +13,6 @@ current_script_path = os.path.abspath(__file__)
 ml_directory = os.path.dirname(os.path.dirname(current_script_path))
 encoder_dir = os.path.join(ml_directory, 'encoder')
 data_directory = os.path.join(ml_directory, 'data')
-data_path = os.path.join(data_directory, 'property_data.csv')
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 class ExtendedNCF(nn.Module):
@@ -53,8 +52,8 @@ class ExtendedNCF(nn.Module):
     
 def process_data():
     # Load data
-    interactions_df = pd.read_csv(data_path + '\interaction.csv')
-    property_df = pd.read_csv(data_path + '\property.csv')
+    interactions_df = pd.read_csv(data_directory + '\interaction.csv')
+    property_df = pd.read_csv(data_directory + '\property.csv')
 
     merged_df = pd.merge(interactions_df, property_df, on='property_id')
 
@@ -207,7 +206,7 @@ def nfc_recommander(user_id):
     model = ExtendedNCF(num_users=1000, num_items=1500, num_item_features=4, embedding_size=20).to(device)
     model.to(device)
     
-    items_df = pd.read_csv(data_path + '\property.csv')
+    items_df = pd.read_csv(data_directory + '\property.csv')
 
     load_model(model)
     
