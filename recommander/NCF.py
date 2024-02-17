@@ -206,7 +206,7 @@ def nfc_recommander(user_id):
     model = ExtendedNCF(num_users=1000, num_items=1500, num_item_features=4, embedding_size=20).to(device)
     model.to(device)
     
-    items_df = pd.read_csv(data_directory + '\property.csv')
+    items_df = pd.read_csv(os.path.join(data_directory, 'property.csv'))
 
     load_model(model)
     
@@ -221,7 +221,7 @@ if __name__ == "__main__":
     
     train_loader, test_loader = process_data()
     
-    # train_model(train_loader, model, criterion, optimizer, device)
+    train_model(train_loader, model, criterion, optimizer, device)
     
     # eval_model(model, test_loader, criterion, device)
 
